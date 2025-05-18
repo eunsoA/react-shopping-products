@@ -9059,7 +9059,6 @@ const ERROR_MSG = {
   BASKET_FETCH_FAIL: "장바구니 목록을 불러오지 못했습니다.",
   BASKET_LIMIT_EXCEEDED: `장바구니에는 최대 ${MAX_BASKET_COUNT}종류의 상품만 담을 수 있습니다.`
 };
-var define_import_meta_env_default$1 = { BASE_URL: "/react-payments/", MODE: "production", DEV: false, PROD: true, SSR: false };
 const apiRequest = async (url, options = {}) => {
   const { queryParams, headers, ...restOptions } = options;
   const requestUrl = new URL(url);
@@ -9070,8 +9069,8 @@ const apiRequest = async (url, options = {}) => {
       }
     });
   }
-  const username = define_import_meta_env_default$1.VITE_API_USERNAME;
-  const password = define_import_meta_env_default$1.VITE_API_PASSWORD;
+  const username = "eunsoa";
+  const password = "password";
   const base64Credentials = btoa(`${username}:${password}`);
   const response = await fetch(requestUrl, {
     headers: {
@@ -9091,8 +9090,7 @@ const apiRequest = async (url, options = {}) => {
   }
   return null;
 };
-var define_import_meta_env_default = { BASE_URL: "/react-payments/", MODE: "production", DEV: false, PROD: true, SSR: false };
-const BASE_URL = define_import_meta_env_default.VITE_API_BASE_URL;
+const BASE_URL = "http://techcourse-lv2-alb-974870821.ap-northeast-2.elb.amazonaws.com";
 const END_POINT = Object.freeze({
   PRODUCT: `${BASE_URL}/products`,
   CART: `${BASE_URL}/cart-items`,
@@ -9338,62 +9336,6 @@ const ErrorMessage = ({
 }) => {
   return /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorWrapper, { role: "alert", children: message });
 };
-const DotWaveWrapper = newStyled.div`
-  --uib-size: 50px;
-  --uib-speed: 0.6s;
-  --uib-color: #0d0909;
-
-  display: flex;
-  flex-flow: row nowrap;
-  align-items: center;
-  justify-content: space-between;
-  width: var(--uib-size);
-  height: calc(var(--uib-size) * 0.17);
-  padding-top: calc(var(--uib-size) * 0.34);
-  margin: 40px auto;
-`;
-const Dot = newStyled.div`
-  flex-shrink: 0;
-  width: calc(var(--uib-size) * 0.17);
-  height: calc(var(--uib-size) * 0.17);
-  border-radius: 50%;
-  background-color: var(--uib-color);
-  will-change: transform;
-
-  &:nth-of-type(1) {
-    animation: jump824 var(--uib-speed) ease-in-out
-      calc(var(--uib-speed) * -0.45) infinite;
-  }
-  &:nth-of-type(2) {
-    animation: jump824 var(--uib-speed) ease-in-out
-      calc(var(--uib-speed) * -0.3) infinite;
-  }
-  &:nth-of-type(3) {
-    animation: jump824 var(--uib-speed) ease-in-out
-      calc(var(--uib-speed) * -0.15) infinite;
-  }
-  &:nth-of-type(4) {
-    animation: jump824 var(--uib-speed) ease-in-out infinite;
-  }
-
-  @keyframes jump824 {
-    0%,
-    100% {
-      transform: translateY(0px);
-    }
-    50% {
-      transform: translateY(-200%);
-    }
-  }
-`;
-const DotWaveSpinner = () => {
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(DotWaveWrapper, { role: "status", "aria-label": "로딩 중", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Dot, {}),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Dot, {}),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Dot, {}),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Dot, {})
-  ] });
-};
 const categoryQueryMap = {
   전체: void 0,
   식료품: "식료품",
@@ -9410,11 +9352,9 @@ function App() {
   const [sort, setSort] = reactExports.useState(SORT[0]);
   const [basketProductsIds, setBasketProductsIds] = reactExports.useState([]);
   const [error, setError] = reactExports.useState(false);
-  const [isLoading, setIsLoading] = reactExports.useState(false);
   reactExports.useEffect(() => {
     const fetchProducts = async () => {
       try {
-        setIsLoading(true);
         const matchedCategory = categoryQueryMap[category];
         const matchedSort = sortQueryMap[sort];
         const data = await getProducts({
@@ -9427,8 +9367,6 @@ function App() {
       } catch (error2) {
         console.error(ERROR_MSG.PRODUCT_FETCH_FAIL, error2);
         setError(true);
-      } finally {
-        setIsLoading(false);
       }
     };
     fetchProducts();
@@ -9436,7 +9374,6 @@ function App() {
   reactExports.useEffect(() => {
     const fetchCartItems = async () => {
       try {
-        setIsLoading(true);
         const data = await getCartItems();
         const mapped = data.map((item) => ({
           productId: item.product.id,
@@ -9446,8 +9383,6 @@ function App() {
       } catch (error2) {
         console.error(ERROR_MSG.BASKET_FETCH_FAIL, error2);
         setError(true);
-      } finally {
-        setIsLoading(false);
       }
     };
     fetchCartItems();
@@ -9464,7 +9399,7 @@ function App() {
         setSort
       }
     ),
-    isLoading ? /* @__PURE__ */ jsxRuntimeExports.jsx(DotWaveSpinner, {}) : /* @__PURE__ */ jsxRuntimeExports.jsx(ProductCardContainer, { children: products.map((product) => {
+    /* @__PURE__ */ jsxRuntimeExports.jsx(ProductCardContainer, { children: products.map((product) => {
       var _a;
       return /* @__PURE__ */ jsxRuntimeExports.jsx(
         ProductCard,
@@ -9474,7 +9409,9 @@ function App() {
           category: product.category,
           price: product.price,
           imageUrl: product.imageUrl,
-          isInBascket: basketProductsIds.some((item) => item.productId === product.id),
+          isInBascket: basketProductsIds.some(
+            (item) => item.productId === product.id
+          ),
           basketId: (_a = basketProductsIds.find((item) => item.productId === product.id)) == null ? void 0 : _a.basketId,
           isNotBasketCountMAX: basketProductsIds.length < MAX_BASKET_COUNT,
           setError
