@@ -12354,38 +12354,84 @@ const useError = () => {
   }
   return context;
 };
+const DEFAULT_CACHE_EXPIRY = 5 * 60 * 1e3;
 const DataContext = reactExports.createContext(void 0);
 const DataProvider = ({ children }) => {
   const [state, setState] = reactExports.useState({});
-  const fetchData = async (key, fetchFn) => {
+  const pendingRequests = reactExports.useRef(/* @__PURE__ */ new Map());
+  const updateState = (key, newState) => {
+    setState((prev2) => ({
+      ...prev2,
+      [key]: { ...prev2[key], ...newState }
+    }));
+  };
+  const isCacheValid = (key) => {
+    const cached = state[key];
+    if (!(cached == null ? void 0 : cached.data) || !cached.timestamp)
+      return false;
+    const expiresIn = cached.expiresIn || DEFAULT_CACHE_EXPIRY;
+    return Date.now() - cached.timestamp < expiresIn;
+  };
+  const invalidateCache = (key) => {
+    setState((prev2) => {
+      const newState = { ...prev2 };
+      delete newState[key];
+      return newState;
+    });
+    pendingRequests.current.delete(key);
+  };
+  const clearAllCache = () => {
+    setState({});
+    pendingRequests.current.clear();
+  };
+  const fetchData = async (key, fetchFn, options = {}) => {
+    const { expiresIn = DEFAULT_CACHE_EXPIRY, forceRefresh = false } = options;
+    if (!forceRefresh && isCacheValid(key)) {
+      return;
+    }
+    const existingRequest = pendingRequests.current.get(key);
+    if (existingRequest) {
+      await existingRequest;
+      return;
+    }
+    updateState(key, { isLoading: true, error: null });
+    const requestPromise = fetchFn();
+    pendingRequests.current.set(key, requestPromise);
     try {
-      setState((prev2) => {
-        var _a;
-        return {
-          ...prev2,
-          [key]: { data: ((_a = prev2[key]) == null ? void 0 : _a.data) || null, isLoading: true, error: "" }
-        };
+      const data = await requestPromise;
+      updateState(key, {
+        data,
+        isLoading: false,
+        timestamp: Date.now(),
+        expiresIn
       });
-      const data = await fetchFn();
-      setState((prev2) => ({
-        ...prev2,
-        [key]: { data, isLoading: false, error: "" }
-      }));
+      if (false)
+        ;
     } catch (error) {
-      setState((prev2) => {
-        var _a;
-        return {
-          ...prev2,
-          [key]: {
-            data: ((_a = prev2[key]) == null ? void 0 : _a.data) || null,
-            isLoading: false,
-            error: error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
-          }
-        };
+      updateState(key, {
+        isLoading: false,
+        error: error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
       });
+    } finally {
+      pendingRequests.current.delete(key);
     }
   };
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(DataContext.Provider, { value: { state, fetchData }, children });
+  const getTypedData = (key) => {
+    return state[key] || { data: null, isLoading: false, error: null };
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    DataContext.Provider,
+    {
+      value: {
+        state,
+        fetchData,
+        getTypedData,
+        invalidateCache,
+        clearAllCache
+      },
+      children
+    }
+  );
 };
 const useDataContext = () => {
   const context = reactExports.useContext(DataContext);
@@ -15146,19 +15192,26 @@ const patchCartItem = async (cartId, quantity) => {
     })
   });
 };
-function useData({ key, fetchFn, deps = [] }) {
-  const { state, fetchData } = useDataContext();
-  const currentState = state[key] || { data: null, isLoading: false, error: "" };
+function useData({
+  key,
+  fetchFn,
+  deps = [],
+  enabled = true
+}) {
+  const { fetchData, getTypedData } = useDataContext();
+  const currentState = getTypedData(key);
   const refetch = reactExports.useCallback(() => {
-    return fetchData(key, fetchFn);
+    return fetchData(key, fetchFn, { forceRefresh: true });
   }, [key, fetchFn, fetchData]);
   reactExports.useEffect(() => {
-    refetch();
-  }, [key, ...deps]);
+    if (!enabled)
+      return;
+    if (!currentState.data && !currentState.isLoading) {
+      fetchData(key, fetchFn);
+    }
+  }, [key, enabled, fetchData, fetchFn, currentState.data, currentState.isLoading, ...deps]);
   return {
-    data: currentState.data,
-    isLoading: currentState.isLoading,
-    error: currentState.error,
+    ...currentState,
     refetch
   };
 }
@@ -15170,6 +15223,12 @@ const ERROR_MSG = {
   CART_ADD_FAIL: "장바구니에 상품을 추가하지 못했습니다.",
   CART_REMOVE_FAIL: "장바구니에서 상품을 제거하지 못했습니다.",
   CART_UPDATE_FAIL: "장바구니에서 상품 수량을 변경하지 못했습니다."
+};
+const createProductsKey = (category, sort) => {
+  return `products-${category}-${sort}`;
+};
+const createCartItemsKey = () => {
+  return "cart-items";
 };
 const useFetchCartItems = () => {
   const fetchCartItems = reactExports.useCallback(async () => {
@@ -15184,8 +15243,9 @@ const useFetchCartItems = () => {
     }));
     return mapped;
   }, []);
+  const key = createCartItemsKey();
   const { data, isLoading, error, refetch } = useData({
-    key: "cart-items",
+    key,
     fetchFn: fetchCartItems
   });
   const addToCart = async (productId) => {
@@ -15435,11 +15495,7 @@ const DropdownLiWrapper = newStyled.li`
     cursor: pointer;
   }
 `;
-const SelectDropdown = ({
-  title,
-  options,
-  onSelect
-}) => {
+const SelectDropdown = ({ title, options, onSelect }) => {
   const [open, setOpen] = reactExports.useState(false);
   const toggleSelectDropdown = () => {
     setOpen(!open);
@@ -15456,19 +15512,87 @@ const SelectDropdown = ({
     open && /* @__PURE__ */ jsxRuntimeExports.jsx(DropdownUlWrapper, { children: options.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsx(DropdownLiWrapper, { onClick: () => handleDropDown(option), children: option }, option)) })
   ] });
 };
-const CATEGORY = ["전체", "식료품", "패션잡화"];
-const SORT = ["순서 없음", "낮은 가격순", "높은 가격순"];
+const CATEGORIES = {
+  all: {
+    key: "all",
+    label: "전체",
+    apiValue: void 0
+  },
+  grocery: {
+    key: "grocery",
+    label: "식료품",
+    apiValue: "식료품"
+  },
+  fashion: {
+    key: "fashion",
+    label: "패션잡화",
+    apiValue: "패션잡화"
+  }
+};
+const SORTS = {
+  none: {
+    key: "none",
+    label: "순서 없음",
+    apiValue: void 0
+  },
+  priceAsc: {
+    key: "priceAsc",
+    label: "낮은 가격순",
+    apiValue: "price,asc"
+  },
+  priceDesc: {
+    key: "priceDesc",
+    label: "높은 가격순",
+    apiValue: "price,desc"
+  }
+};
+const CATEGORY_KEYS = Object.keys(CATEGORIES);
+const SORT_KEYS = Object.keys(SORTS);
+const CATEGORY_LABELS = Object.values(CATEGORIES).map((cat) => cat.label);
+const SORT_LABELS = Object.values(SORTS).map((sort) => sort.label);
+const getCategoryByKey = (key) => CATEGORIES[key];
+const getSortByKey = (key) => SORTS[key];
+const getCategoryKeyByLabel = (label) => {
+  return Object.keys(CATEGORIES).find((key) => CATEGORIES[key].label === label);
+};
+const getSortKeyByLabel = (label) => {
+  return Object.keys(SORTS).find((key) => SORTS[key].label === label);
+};
 const SelectDropdownContainer = ({
   category,
   sort,
-  setCategory,
-  setSort
+  handleCategoryChange,
+  handleSortChange
 }) => {
+  const handleCategorySelect = (label) => {
+    const key = getCategoryKeyByLabel(label);
+    if (key)
+      handleCategoryChange(key);
+  };
+  const handleSortSelect = (label) => {
+    const key = getSortKeyByLabel(label);
+    if (key)
+      handleSortChange(key);
+  };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(Header, { children: "bpple 상품 목록" }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs(Container$1, { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(SelectDropdown, { title: category, options: CATEGORY, onSelect: setCategory }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(SelectDropdown, { title: sort, options: SORT, onSelect: setSort })
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        SelectDropdown,
+        {
+          title: CATEGORIES[category].label,
+          options: CATEGORY_LABELS,
+          onSelect: handleCategorySelect
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        SelectDropdown,
+        {
+          title: SORTS[sort].label,
+          options: SORT_LABELS,
+          onSelect: handleSortSelect
+        }
+      )
     ] })
   ] });
 };
@@ -15532,22 +15656,12 @@ const Dot = newStyled.div`
   }
 `;
 const DotWaveSpinner = () => {
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(DotWaveWrapper, { role: "status", "aria-label": "로딩 중", children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(DotWaveWrapper, { role: "status", "aria-label": "로딩 중", "data-testid": "dot-wave-spinner", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(Dot, {}),
     /* @__PURE__ */ jsxRuntimeExports.jsx(Dot, {}),
     /* @__PURE__ */ jsxRuntimeExports.jsx(Dot, {}),
     /* @__PURE__ */ jsxRuntimeExports.jsx(Dot, {})
   ] });
-};
-const categoryQueryMap = {
-  전체: void 0,
-  식료품: "식료품",
-  패션잡화: "패션잡화"
-};
-const sortQueryMap = {
-  "순서 없음": void 0,
-  "낮은 가격순": "price,asc",
-  "높은 가격순": "price,desc"
 };
 const getProducts = async ({
   page = 0,
@@ -15564,31 +15678,26 @@ const getProducts = async ({
     }
   });
 };
-const useFetchProducts = ({
-  category,
-  sort,
-  categoryQueryMap: categoryQueryMap2,
-  sortQueryMap: sortQueryMap2
-}) => {
+const useFetchProducts = ({ category, sort }) => {
   const fetchProducts = reactExports.useCallback(async () => {
-    const matchedCategory = categoryQueryMap2[category];
-    const matchedSort = sortQueryMap2[sort];
+    const categoryConfig = getCategoryByKey(category);
+    const sortConfig = getSortByKey(sort);
     const data2 = await getProducts({
       page: 0,
       size: 20,
-      ...matchedSort && { sort: matchedSort },
-      ...matchedCategory && { category: matchedCategory }
+      ...sortConfig.apiValue && { sort: sortConfig.apiValue },
+      ...categoryConfig.apiValue && { category: categoryConfig.apiValue }
     });
     return data2.content;
-  }, [category, sort, categoryQueryMap2, sortQueryMap2]);
-  const key = `products-${category}-${sort}`;
+  }, [category, sort]);
+  const key = createProductsKey(category, sort);
   const { data, isLoading, error } = useData({
     key,
     fetchFn: fetchProducts,
     deps: [category, sort]
   });
   return {
-    data: data || [],
+    data: data ?? [],
     isLoading,
     error
   };
@@ -15674,6 +15783,10 @@ const ModalProductItemName = newStyled.div`
   font-size: 16px;
   font-weight: 700;
   color: #000;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
 `;
 const ModalProductItemPrice = newStyled.div`
   font-size: 12px;
@@ -15715,7 +15828,10 @@ const ModalProductItem = ({ id, cartId, name, price, imageUrl }) => {
       /* @__PURE__ */ jsxRuntimeExports.jsxs(ModalProductItemContentContainer, { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { id: "left-container", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(ModalProductItemName, { children: name }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(ModalProductItemPrice, { children: price }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(ModalProductItemPrice, { children: [
+            price.toLocaleString(),
+            "원"
+          ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(CartUpdateButton, { id })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(ModalProductItemDeleteButton, { onClick: handleDeleteButton, children: "삭제" })
@@ -15760,20 +15876,24 @@ const Modal = () => {
   );
 };
 function ProductPage() {
-  const [category, setCategory] = reactExports.useState(CATEGORY[0]);
-  const [sort, setSort] = reactExports.useState(SORT[0]);
+  const [category, setCategory] = reactExports.useState(CATEGORY_KEYS[0]);
+  const [sort, setSort] = reactExports.useState(SORT_KEYS[0]);
   const {
     data: products,
     isLoading: productsLoading,
     error: productsError
   } = useFetchProducts({
     category,
-    sort,
-    categoryQueryMap,
-    sortQueryMap
+    sort
   });
   const { error: cartError } = useFetchCartItems();
   const { errorMessage: contextErrorMessage } = useError();
+  const handleCategoryChange = (category2) => {
+    setCategory(category2);
+  };
+  const handleSortChange = (sort2) => {
+    setSort(sort2);
+  };
   const errorMessage = productsError || cartError || contextErrorMessage;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(Container, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(Modal, {}),
@@ -15786,8 +15906,8 @@ function ProductPage() {
         {
           category,
           sort,
-          setCategory,
-          setSort
+          handleCategoryChange,
+          handleSortChange
         }
       ),
       /* @__PURE__ */ jsxRuntimeExports.jsx(ProductCardContainer, { children: products.map(({ id, name, category: category2, price, imageUrl }) => /* @__PURE__ */ jsxRuntimeExports.jsx(
